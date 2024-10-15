@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.1.3/firebase-app.js';
+        import { getFirestore, collection, addDoc, getDocs, orderBy, limit, query } from 'https://www.gstatic.com/firebasejs/9.1.3/firebase-firestore.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDlaMVBRQlulpV9MbVxasuGblF38KkY5f8",
+            authDomain: "greek-bird.firebaseapp.com",
+            projectId: "greek-bird",
+            storageBucket: "greek-bird.appspot.com",
+            messagingSenderId: "58870766246",
+            appId: "1:58870766246:web:6eb9c796ec11abd0e5f267",
+            measurementId: "G-PZBLWMH5W6"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        window.saveScore = async function saveScore(playerName, score) {
+            try {
+                const collectionScore = collection(db, "score");
+                await addDoc(collectionScore, {
+                    Player: playerName,
+                    Score: score
+                });
+            } catch (error) {
+                console.error("Erro ao salvar a pontuação: ", error);
+            }
+        }
+
+        window.getTopScores = async function getTopScores() {
+            const topScores = [];
+            try {
+                const collectionScore = collection(db, "score");
+                const snapshot = await getDocs(
+                    query(collectionScore, orderBy("Score", "desc"), limit(10))
+                );
+                snapshot.forEach((doc) => {
+                    topScores.push({
+                        name: doc.data().Player || "Anônimo",
+                        score: doc.data().Score
+                    });
+                });
+                return topScores;
+            } catch (error) {
+                console.error("Erro ao obter as pontuações: ", error);
+                return [];
+            }
+        }
+    </script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Greek Bird</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        #background {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: url('background.jpeg');
+            background-size: cover;
+            background-position: center;
+            z-index: 0;
+        }
+
+        canvas {
+            display: block;
+            background-color: transparent;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+
+        #gameOverText {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 48px;
+            color: white;
+            display: none;
+            z-index: 2;
+        }
+
+        #tryAgainButton {
+            position: absolute;
+            top: 60%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 10px 20px;
+            font-size: 24px;
+            display: none;
+            z-index: 2;
+        }
+
+        #rankingText {
+            position: absolute;
+            top: 70%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 255, 255, 0.8);
+            border: 2px solid black;
+            padding: 10px;
+            display: none; /* Começa invisível */
+            z-index: 2;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="background"></div>
+    <canvas id="gameCanvas"></canvas>
+    <div id="gameOverText">Game Over</div>
+    <button id="tryAgainButton" onclick="restartGame()">Try Again</button>
+    <div id="rankingText"></div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        const birdImage = new Image();
+        birdImage.src = 'socrates.png';
+        const columnImage = new Image();
+        columnImage.src = 'column.jpeg';
+
+        const bird = {
+            x: 50,
+            y: canvas.height / 2,
+            width: 80,
+            height: 80,
+            gravity: 0.2, // Aumentei a gravidade para cair mais rápido
+            lift: -4, // Reduzi a elevação para saltar menos alto
+            velocity: 0
+        };
+
+        const columns = [];
+        const columnWidth = 60;
+        const gapHeight = 250;
+        let score = 0;
+        let gameOver = false;
+        let gameStarted = false; // Controla se o jogo já começou
+        let rankingDisplayed = false; // Variável para controlar se o ranking foi exibido
+
+        function drawBird() {
+            ctx.drawImage(birdImage, bird.x, bird.y, bird.width, bird.height);
+        }
+
+        function drawColumn(column) {
+            ctx.drawImage(columnImage, column.x, column.gapY + gapHeight, columnWidth, canvas.height - column.gapY - gapHeight);
+            ctx.save();
+            ctx.scale(1, -1);
+            ctx.drawImage(columnImage, column.x, -column.gapY, columnWidth, column.gapY);
+            ctx.restore();
+        }
+
+        function updateColumns() {
+            for (let i = columns.length - 1; i >= 0; i--) {
+                const column = columns[i];
+                column.x -= 3;
+                if (column.x + columnWidth < 0) {
+                    columns.splice(i, 1);
+                    score++;
+                }
+                drawColumn(column);
+                if (
+                    bird.x + bird.width > column.x &&
+                    bird.x < column.x + columnWidth &&
+                    (bird.y < column.gapY || bird.y + bird.height > column.gapY + gapHeight)
+                ) {
+                    gameOver = true;
+                }
+            }
+
+            if (columns.length === 0 || columns[columns.length - 1].x < canvas.width - 300) {
+                const gapY = Math.random() * (canvas.height - gapHeight - 100) + 50;
+                columns.push({ x: canvas.width, gapY });
+            }
+        }
+
+        function updateBird() {
+            bird.velocity += bird.gravity;
+            bird.y += bird.velocity;
+
+            if (bird.y + bird.height > canvas.height || bird.y < 0) {
+                gameOver = true;
+            }
+        }
+
+        function restartGame() {
+            bird.y = canvas.height / 2;
+            bird.velocity = 0;
+            columns.length = 0;
+            score = 0;
+            gameOver = false;
+            rankingDisplayed = false; // Reinicia a variável de ranking
+            document.getElementById('gameOverText').style.display = 'none';
+            document.getElementById('tryAgainButton').style.display = 'none';
+            document.getElementById('rankingText').style.display = 'none'; // Esconde o ranking
+            animate();
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            updateBird();
+            drawBird();
+            updateColumns();
+
+            ctx.fillStyle = 'white';
+            ctx.font = '24px Arial';
+            ctx.fillText('Score: ' + score, 10, 30);
+
+            if (!gameOver) {
+                requestAnimationFrame(animate);
+            } else {
+                document.getElementById('gameOverText').style.display = 'block';
+                document.getElementById('tryAgainButton').style.display = 'block';
+
+                // Obter as melhores pontuações e verificar se a pontuação do jogador é suficiente
+                getTopScores().then(topScores => {
+                    let lowestScore = topScores.length > 0 ? topScores[topScores.length - 1].score : 0;
+
+                    if (score > lowestScore) {
+                        // Solicitar o nome do jogador
+                        const playerName = prompt("Digite seu nome para o ranking:");
+                        if (playerName) {
+                            saveScore(playerName, score);
+                        }
+                    }
+
+                    let rankingText = "Top 10 Scores:\n";
+                    topScores.forEach((entry, index) => {
+                        rankingText += `${index + 1}. ${entry.name}: ${entry.score}\n`;
+                    });
+
+                    // Adiciona a pontuação do jogador ao ranking
+                    rankingText += `\nSua pontuação: ${score} ${topScores.length < 10 || topScores.some(entry => entry.score < score) ? "entrou" : "não entrou"} no ranking.`;
+                    document.getElementById('rankingText').innerText = rankingText;
+                    document.getElementById('rankingText').style.display = 'block'; // Mostra o ranking
+                    rankingDisplayed = true; // Marca que o ranking foi exibido
+                });
+            }
+        }
+
+        canvas.addEventListener('click', async (event) => {
+            if (!gameStarted) {
+                gameStarted = true; // O jogo começa no primeiro toque
+                restartGame(); // Inicia o jogo
+            } else if (gameOver) {
+                // Se o jogo acabou e o ranking foi exibido, ao clicar, esconde o ranking
+                if (rankingDisplayed) {
+                    document.getElementById('rankingText').style.display = 'none'; // Esconde o ranking
+                }
+                restartGame(); // Reinicia o jogo ao clicar após Game Over
+            } else {
+                bird.velocity = bird.lift; // O toque fará o pássaro saltar
+            }
+        });
+    </script>
+</body>
+
+</html>
